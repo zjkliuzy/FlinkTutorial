@@ -3,9 +3,11 @@ package org.liu.apitest
 import org.apache.flink.api.common.functions.ReduceFunction
 import org.apache.flink.api.java.tuple.Tuple
 import org.apache.flink.streaming.api.TimeCharacteristic
+import org.apache.flink.streaming.api.functions.{AssignerWithPeriodicWatermarks, AssignerWithPunctuatedWatermarks}
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.streaming.api.scala.function.WindowFunction
+import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow
 import org.apache.flink.util.Collector
@@ -15,6 +17,8 @@ object WindowsTest1 {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
     env.setParallelism(1)
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
+//    env.getConfig.setAutoWatermarkInterval(100)
+
     val inputStreamData = env.socketTextStream("192.168.31.202", 7777)
     val value = inputStreamData
       .map(d => {
@@ -56,3 +60,36 @@ class MyWindowsFun() extends WindowFunction[SensorReading, (Long, Int), Tuple, T
 
   }
 }
+
+//自定义一个周期性生成watermark的assigner
+class MyPrAssigner(latness: Long) extends AssignerWithPeriodicWatermarks[SensorReading] {
+  //延迟时间和最大时间戳
+  // val lateness: Long = 1000L
+  var maxTime = Long.MinValue + latness
+
+  override def getCurrentWatermark: Watermark = {
+    new Watermark(maxTime - latness)
+  }
+
+  override def extractTimestamp(element: SensorReading, previousElementTimestamp: Long): Long = {
+    maxTime = maxTime.max(element.timestamp * 1000L)
+    element.timestamp * 1000
+  }
+}
+
+//自定义一个断点式生成watermark的assigner
+class MyPunAssigner() extends AssignerWithPunctuatedWatermarks[SensorReading] {
+  val lateness = 1000L
+
+  override def checkAndGetNextWatermark(lastElement: SensorReading, extractedTimestamp: Long): Watermark = {
+    if (lastElement.id == "sensor1") {
+      new Watermark(extractedTimestamp - lateness)
+    } else {
+      null
+    }
+  }
+
+  override def extractTimestamp(element: SensorReading, previousElementTimestamp: Long): Long = element.timestamp * 1000
+}
+
+
