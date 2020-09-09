@@ -3,6 +3,7 @@ package org.liu.apitest
 import org.apache.flink.api.common.functions.ReduceFunction
 import org.apache.flink.api.java.tuple.Tuple
 import org.apache.flink.streaming.api.TimeCharacteristic
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.streaming.api.scala.function.WindowFunction
 import org.apache.flink.streaming.api.windowing.time.Time
@@ -20,16 +21,22 @@ object WindowsTest1 {
         val dataArrray = d.split(",")
         SensorReading(dataArrray(0), dataArrray(1).toLong, dataArrray(2).toDouble)
       })
-//      .assignTimestampsAndWatermarks()
+      .assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor[SensorReading](Time.seconds(5)) {
+        override def extractTimestamp(element: SensorReading): Long = element.timestamp * 1000
+      })
     val resultStream = value
       .keyBy("id")
       //  .window(EventTimeSessionWindows.withGap(Time.minutes(1))) //会话窗口
-      .timeWindow(Time.seconds(15),Time.seconds(5))
+      .timeWindow(Time.seconds(15), Time.seconds(5))
+      .allowedLateness(Time.minutes(1)) //迟到数据
+      .sideOutputLateData(new OutputTag[SensorReading]("late")) //测输出
+
       //      .window(TumblingProcessingTimeWindows.of(Time.minutes(1)))
       //.countWindow(10, 1) //计数窗口
       // .reduce(new MyReduce())//流式
-      .apply(new MyWindowsFun())//批处理
+      .apply(new MyWindowsFun()) //批处理
     resultStream.print("result")
+    resultStream.getSideOutput(new OutputTag[SensorReading]("late"))
     env.execute("windows")
   }
 
