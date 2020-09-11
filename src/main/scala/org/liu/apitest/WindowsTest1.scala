@@ -1,7 +1,7 @@
 package org.liu.apitest
 
 import org.apache.flink.api.common.functions.ReduceFunction
-import org.apache.flink.api.java.tuple.Tuple
+import org.apache.flink.api.java.tuple.{Tuple,Tuple1}
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.functions.{AssignerWithPeriodicWatermarks, AssignerWithPunctuatedWatermarks}
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
@@ -17,7 +17,7 @@ object WindowsTest1 {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
     env.setParallelism(1)
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
-//    env.getConfig.setAutoWatermarkInterval(100)
+    env.getConfig.setAutoWatermarkInterval(100)
 
     val inputStreamData = env.socketTextStream("192.168.31.202", 7777)
     val value = inputStreamData
@@ -35,7 +35,7 @@ object WindowsTest1 {
       .allowedLateness(Time.minutes(1)) //迟到数据
       .sideOutputLateData(new OutputTag[SensorReading]("late")) //测输出
 
-      //      .window(TumblingProcessingTimeWindows.of(Time.minutes(1)))
+      //.window(TumblingProcessingTimeWindows.of(Time.minutes(1)))
       //.countWindow(10, 1) //计数窗口
       // .reduce(new MyReduce())//流式
       .apply(new MyWindowsFun()) //批处理
@@ -54,9 +54,10 @@ class MyReduce() extends ReduceFunction[SensorReading] {
 
 //自定义全窗口函数
 
-class MyWindowsFun() extends WindowFunction[SensorReading, (Long, Int), Tuple, TimeWindow] {
-  override def apply(key: Tuple, window: TimeWindow, input: Iterable[SensorReading], out: Collector[(Long, Int)]): Unit = {
-    out.collect((window.getStart, input.size))
+class MyWindowsFun() extends WindowFunction[SensorReading, (String,Long, Int), Tuple, TimeWindow] {
+  override def apply(key: Tuple, window: TimeWindow, input: Iterable[SensorReading], out: Collector[(String,Long, Int)]): Unit = {
+    val id = key.asInstanceOf[Tuple1[String]].f0
+    out.collect((id,window.getStart, input.size))
 
   }
 }
