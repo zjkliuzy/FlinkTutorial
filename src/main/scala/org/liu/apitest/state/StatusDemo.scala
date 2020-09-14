@@ -1,6 +1,6 @@
 package org.liu.apitest.state
 
-import org.apache.flink.api.common.functions.ReduceFunction
+import org.apache.flink.api.common.functions.{ReduceFunction, RichFlatMapFunction, RichMapFunction}
 import org.apache.flink.api.common.state.{ListState, ListStateDescriptor, MapState, MapStateDescriptor, ReducingState, ReducingStateDescriptor, ValueState, ValueStateDescriptor}
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
@@ -25,8 +25,59 @@ object StatusDemo {
         SensorReading(dataArrray(0), dataArrray(1).toLong, dataArrray(2).toDouble)
       })
 
-
+    val warnStream = value.keyBy("id")
+      //.flatMap(new TempChangingFunctionFlatMap(10))
+      .flatMapWithState[(String, Double, Double), Double]({
+        case (inputData: SensorReading, None) => (List.empty, Some(inputData.temp))
+        case (inputData: SensorReading, lastTemp: Some[Double]) => {
+          val diff = (inputData.temp - lastTemp.get).abs
+          if (diff > 10) {
+            (List((inputData.id, lastTemp.get, inputData.temp)), Some(inputData.temp))
+          } else {
+            (List.empty, Some(inputData.temp))
+          }
+        }
+      })
+    warnStream.print("status")
     env.execute("statusJob")
+  }
+}
+
+//自定义Richmapfunction
+class TempChangingFuction(threhole: Double) extends RichMapFunction[SensorReading, (String, Double, Double)] {
+  //状态变量，上一次温度
+  private var lastTemp: ValueState[Double] = _
+
+  override def open(parameters: Configuration): Unit = {
+    lastTemp = getRuntimeContext.getState(new ValueStateDescriptor[Double]("last-temp", classOf[Double]))
+  }
+
+  override def map(in: SensorReading): (String, Double, Double) = {
+    val lastTempValue = lastTemp.value()
+    //更新状态
+    lastTemp.update(in.temp)
+    val diff = (in.temp - lastTempValue).abs
+    if (diff > threhole) {
+      (in.id, lastTempValue, in.temp)
+    } else {
+      null
+    }
+  }
+}
+
+//自定义RichFlatMapFunction
+class TempChangingFunctionFlatMap(threhole: Double) extends RichFlatMapFunction[SensorReading, (String, Double, Double)] {
+  lazy val lastTemp: ValueState[Double] = getRuntimeContext.getState(new ValueStateDescriptor[Double]("last-temp", classOf[Double]))
+
+  override def flatMap(in: SensorReading, collector: Collector[(String, Double, Double)]): Unit = {
+    val lastTempValue = lastTemp.value()
+    //更新状态
+    lastTemp.update(in.temp)
+    val diff = (in.temp - lastTempValue).abs
+    if (diff > threhole) {
+      collector.collect((in.id, lastTempValue, in.temp))
+
+    }
   }
 }
 
