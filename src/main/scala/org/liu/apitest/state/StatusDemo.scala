@@ -1,11 +1,14 @@
 package org.liu.apitest.state
 
+import java.util
+
 import org.apache.flink.api.common.functions.{ReduceFunction, RichFlatMapFunction, RichMapFunction}
 import org.apache.flink.api.common.state.{ListState, ListStateDescriptor, MapState, MapStateDescriptor, ReducingState, ReducingStateDescriptor, ValueState, ValueStateDescriptor}
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
 import org.apache.flink.runtime.state.filesystem.FsStateBackend
 import org.apache.flink.streaming.api.TimeCharacteristic
+import org.apache.flink.streaming.api.checkpoint.ListCheckpointed
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.util.Collector
@@ -99,5 +102,33 @@ class MyProcessor extends KeyedProcessFunction[String, SensorReading, Int] {
     myListState.add("haha")
     myReduceState.add(i)
 
+  }
+}
+
+class MyMapper1() extends RichMapFunction[SensorReading, Long] with ListCheckpointed[Long] {
+  //lazy val countState : ValueState[Long] = getRuntimeContext.getState(new ValueStateDescriptor[Long]("mapper1",classOf[Long]))//keyed state的定义
+  //Operator state
+  var conut = 0L
+
+  override def map(in: SensorReading): Long = {
+    conut = conut + 1
+    conut
+  }
+
+  override def snapshotState(l: Long, l1: Long): util.List[Long] = {
+    val stateList = new util.ArrayList[Long]()
+    stateList.add(conut)
+    stateList
+  }
+
+  override def restoreState(list: util.List[Long]): Unit = {
+        val iter = list.iterator()
+        while (iter.hasNext) {
+          conut += iter.next()
+        }
+
+   /* for (aaa <- list) {
+      conut += aaa
+    }*/
   }
 }
