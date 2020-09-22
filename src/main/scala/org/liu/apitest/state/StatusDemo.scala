@@ -1,13 +1,17 @@
 package org.liu.apitest.state
 
 import java.util
+import java.util.concurrent.TimeUnit
 
 import org.apache.flink.api.common.functions.{ReduceFunction, RichFlatMapFunction, RichMapFunction}
+import org.apache.flink.api.common.restartstrategy.RestartStrategies
 import org.apache.flink.api.common.state.{ListState, ListStateDescriptor, MapState, MapStateDescriptor, ReducingState, ReducingStateDescriptor, ValueState, ValueStateDescriptor}
+import org.apache.flink.api.common.time.Time
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
+import org.apache.flink.runtime.executiongraph.restart.RestartStrategy
 import org.apache.flink.runtime.state.filesystem.FsStateBackend
-import org.apache.flink.streaming.api.TimeCharacteristic
+import org.apache.flink.streaming.api.{CheckpointingMode, TimeCharacteristic}
 import org.apache.flink.streaming.api.checkpoint.ListCheckpointed
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction
 import org.apache.flink.streaming.api.scala._
@@ -21,6 +25,14 @@ object StatusDemo {
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
     /*    env.setStateBackend( new FsStateBackend(""))
         env.setStateBackend(new RocksDBStateBackend("",true))配置状态后端*/
+
+    env.enableCheckpointing(1000)
+    env.getCheckpointConfig.setCheckpointingMode(CheckpointingMode.AT_LEAST_ONCE)
+    env.getCheckpointConfig.setCheckpointTimeout(60000)
+    env.getCheckpointConfig.setMaxConcurrentCheckpoints(2)
+
+    env.setRestartStrategy(RestartStrategies.fixedDelayRestart(3, 60000))
+    env.setRestartStrategy(RestartStrategies.failureRateRestart(5, Time.of(5, TimeUnit.MINUTES), Time.of(10, TimeUnit.MINUTES)))
     val inputStreamData = env.socketTextStream("192.168.31.202", 7777)
     val value = inputStreamData
       .map(d => {
@@ -122,13 +134,13 @@ class MyMapper1() extends RichMapFunction[SensorReading, Long] with ListCheckpoi
   }
 
   override def restoreState(list: util.List[Long]): Unit = {
-        val iter = list.iterator()
-        while (iter.hasNext) {
-          conut += iter.next()
-        }
+    val iter = list.iterator()
+    while (iter.hasNext) {
+      conut += iter.next()
+    }
 
-   /* for (aaa <- list) {
-      conut += aaa
-    }*/
+    /* for (aaa <- list) {
+       conut += aaa
+     }*/
   }
 }
